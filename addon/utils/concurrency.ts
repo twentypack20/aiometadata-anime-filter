@@ -1,0 +1,32 @@
+const META_CONCURRENCY = parseInt(process.env.META_CONCURRENCY || '0', 10) || 0;
+
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  const width = Math.max(1, Math.min(limit, items.length));
+  let next = 0;
+
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+
+  await Promise.all(Array.from({ length: width }, () => worker()));
+  return results;
+}
+
+export async function mapWithLimit<T, R>(
+  items: T[],
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  if (!META_CONCURRENCY || items.length <= META_CONCURRENCY) {
+    return Promise.all(items.map(fn));
+  }
+
+  return mapWithConcurrency(items, META_CONCURRENCY, fn);
+}
