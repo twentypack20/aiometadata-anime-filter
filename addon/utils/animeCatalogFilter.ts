@@ -216,6 +216,22 @@ function classifyAnime(meta: any, fallbackType: string): AnimeClassification {
     logger.debug(`Anime-Lists mapping lookup unavailable: ${error?.message || error}`);
   }
 
+  // Local title index is a positive-only fallback: exact known-anime title plus
+  // Animation/Anime genre. Requiring the animation genre avoids removing unrelated
+  // live-action titles that happen to share an anime title (for example, Overlord).
+  try {
+    const genres = getGenreNames(meta);
+    if (genres.has('animation') || genres.has('anime')) {
+      const localAnimeSearch = require('../lib/localAnimeSearch');
+      const year = meta?.year ?? (typeof meta?.released === 'string' ? meta.released.slice(0, 4) : null);
+      if (localAnimeSearch.isKnownAnimeTitle?.(String(meta?.name || ''), year)) {
+        return { isAnime: true, reason: 'local anime title index' };
+      }
+    }
+  } catch (error: any) {
+    logger.debug(`Local anime title lookup unavailable: ${error?.message || error}`);
+  }
+
   // Last-resort metadata heuristic. It deliberately requires Animation + Japanese
   // origin/language so Western cartoons and children's animation are preserved.
   if (looksLikeJapaneseAnimation(meta)) {

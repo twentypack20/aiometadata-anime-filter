@@ -259,8 +259,8 @@ export interface AppConfig {
     providers: {
         movie: 'tmdb.search' | 'tvdb.search' | 'trakt.search' | 'mdblist.search' | 'imdb.suggestions.search' | 'simkl.search';
         series: 'tmdb.search' | 'tvdb.search' | 'tvmaze.search' | 'trakt.search' | 'mdblist.search' | 'imdb.suggestions.search' | 'simkl.search';
-        anime_movie: 'mal.search.movie' | 'kitsu.search.movie' | 'simkl.search.movie';
-        anime_series: 'mal.search.series' | 'kitsu.search.series' | 'simkl.search.series';
+        anime_movie: 'mal.search.movie' | 'kitsu.search.movie' | 'simkl.search.movie' | 'local.anime.search.movie';
+        anime_series: 'mal.search.series' | 'kitsu.search.series' | 'simkl.search.series' | 'local.anime.search.series';
         people_search_movie?: 'tmdb.people.search' | 'tvdb.people.search' | 'trakt.people.search';
         people_search_series?: 'tmdb.people.search' | 'tvdb.people.search' | 'trakt.people.search';
     };

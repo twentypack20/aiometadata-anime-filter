@@ -116,6 +116,8 @@ export const allSearchProviders: SearchProviderDefinition[] = [
   { value: 'mal.search.series', label: 'MAL (Series)', mediaType: ['series', 'anime_series'] },
   { value: 'kitsu.search.movie', label: 'Kitsu (Movies)', mediaType: ['movie', 'anime_movie'] },
   { value: 'kitsu.search.series', label: 'Kitsu (Series)', mediaType: ['series', 'anime_series'] },
+  { value: 'local.anime.search.movie', label: 'Local Anime Index (Movies)', mediaType: ['anime_movie'] },
+  { value: 'local.anime.search.series', label: 'Local Anime Index (Series)', mediaType: ['anime_series'] },
   { value: 'simkl.search.movie', label: 'Simkl (Movies)', mediaType: ['anime_movie'] },
   { value: 'simkl.search.series', label: 'Simkl (Series)', mediaType: ['anime_series'] },
 ];

@@ -10,6 +10,7 @@ const imdb: any = require('./imdb');
 const tvmaze: any = require('./tvmaze');
 const idMapper: any = require('./id-mapper');
 const kitsu: any = require('./kitsu');
+const localAnimeSearch: any = require('./localAnimeSearch');
 const { resolveAllIds }: any = require('./id-resolver');
 const { isAnime }: any = require("../utils/isAnime");
 const { performGeminiSearch, resolveGeminiModel }: any = require('../utils/gemini-service');
@@ -419,6 +420,54 @@ async function performKitsuSearch(type: string, query: string, language: string,
   }
 }
 
+
+
+async function performLocalAnimeSearch(type: 'movie' | 'series', query: string, language: string, config: any, page: number = 1): Promise<any[]> {
+  logger.debug(`Performing local anime index search for ${type}:`, query);
+
+  try {
+    const results = await localAnimeSearch.searchLocalAnime(query, type, page, 20);
+
+    if (!results || results.length === 0) {
+      logger.info(`No local anime index results found for query: "${query}"`);
+      if (localAnimeSearch.isLocalAnimeKitsuFallbackEnabled()) {
+        logger.info(`Falling back to Kitsu text search for local anime miss: "${query}"`);
+        return await performKitsuSearch(type, query, language, config, page);
+      }
+      return [];
+    }
+
+    const mediaType = type === 'movie' ? 'movie' : 'series';
+    const metas = results.map((item: any) => ({
+      id: `kitsu:${item.kitsuId}`,
+      type: mediaType,
+      name: localAnimeSearch.selectLocalAnimeTitle(item, language),
+      poster: item.image || `${host}/missing_poster.png`,
+      logo: null,
+      background: null,
+      description: '',
+      genres: [],
+      year: item.year || null,
+      released: item.year ? new Date(`${item.year}-01-01T00:00:00.000Z`) : undefined,
+      status: item.status || 'unknown',
+      episodeCount: item.episodeCount || null,
+      runtime: null,
+      certification: null,
+      _localAnimeMalId: item.malId,
+      _localAnimeType: item.animeType,
+    }));
+
+    logger.info(`Returning ${metas.length} local anime index result(s) for "${query}" without a live anime text-search API call`);
+    return metas;
+  } catch (error: any) {
+    logger.error(`Local anime search failed for "${query}":`, error.message);
+    if (localAnimeSearch.isLocalAnimeKitsuFallbackEnabled()) {
+      logger.info(`Falling back to Kitsu text search after local anime index failure: "${query}"`);
+      return await performKitsuSearch(type, query, language, config, page);
+    }
+    return [];
+  }
+}
 
 
 function normalizeForComparison(str: string): string {
@@ -2794,6 +2843,12 @@ async function getSearch(id: string, type: string, language: string, extra: any,
               case 'kitsu.search.movie':
                 metas = await performKitsuSearch('movie', query, language, config, page);
                 break;
+              case 'local.anime.search.series':
+                metas = await performLocalAnimeSearch('series', query, language, config, page);
+                break;
+              case 'local.anime.search.movie':
+                metas = await performLocalAnimeSearch('movie', query, language, config, page);
+                break;
               case 'simkl.search.series':
                 metas = await performSimklAnimeSearch('series', query, language, config, page);
                 break;
@@ -2851,7 +2906,8 @@ async function getSearch(id: string, type: string, language: string, extra: any,
       }
 
       if (providerId) {
-        if (providerId.includes('mal.')) actualProvider = 'mal';
+        if (providerId.includes('local.anime.')) actualProvider = 'local-anime';
+        else if (providerId.includes('mal.')) actualProvider = 'mal';
         else if (providerId.includes('kitsu.')) actualProvider = 'kitsu';
         else if (providerId.includes('tmdb.')) actualProvider = 'tmdb';
         else if (providerId.includes('tvdb.')) actualProvider = 'tvdb';
@@ -2920,7 +2976,8 @@ async function getSearch(id: string, type: string, language: string, extra: any,
       }
 
       if (providerId) {
-        if (providerId.includes('mal.')) actualProvider = 'mal';
+        if (providerId.includes('local.anime.')) actualProvider = 'local-anime';
+        else if (providerId.includes('mal.')) actualProvider = 'mal';
         else if (providerId.includes('kitsu.')) actualProvider = 'kitsu';
         else if (providerId.includes('tmdb.')) actualProvider = 'tmdb';
         else if (providerId.includes('tvdb.')) actualProvider = 'tvdb';

@@ -4,6 +4,7 @@ import './utils/httpClient.js';
 import { addon, startServerWithCacheWarming } from './index.js';
 import { initializeMapper } from './lib/id-mapper.js';
 import { initializeAnimeListMapper } from './lib/anime-list-mapper.js';
+import { initializeLocalAnimeSearch, getLocalAnimeSearchStats } from './lib/localAnimeSearch.js';
 import { initializeMappings } from './lib/wiki-mapper.js';
 import { initializeRatings } from './lib/imdbRatings.js';
 import { initializeTmdbNetworkIndex } from './lib/tmdb-network-index.js';
@@ -121,6 +122,12 @@ const initializationTasks: InitTask[] = [
     key: 'animeListMapper',
     timeoutMs: 180_000,
     run: () => initializeAnimeListMapper()
+  },
+  {
+    key: 'localAnimeSearch',
+    timeoutMs: 120_000,
+    run: () => initializeLocalAnimeSearch(),
+    summary: () => `${getLocalAnimeSearchStats().count.toLocaleString()} titles`
   },
   {
     key: 'wikiMappings',

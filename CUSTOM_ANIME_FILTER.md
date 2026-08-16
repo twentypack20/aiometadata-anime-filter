@@ -70,3 +70,9 @@ v3 keeps the v2 search-row behavior and improves the conservative fallback used 
 - Dedicated Anime Movies / Anime Shows search rows remain untouched.
 - This patch intentionally does not try to remove fan-made or low-quality TVDB records unless they independently classify as anime; search-quality cleanup is a separate concern.
 
+
+## v4: local anime title search
+
+v4 adds a dedicated **Local Anime Index** provider for Anime Series and Anime Movies search. It downloads a compact, actively refreshed title index and performs title matching locally, then resolves the selected MAL-keyed records through AIOMetadata's existing ID mapper to Kitsu IDs.
+
+This is separate from the general-catalog anime filter: v3's normal-row filtering stays intact. See `LOCAL_ANIME_SEARCH.md` for architecture, source, fallback, and licensing details.
