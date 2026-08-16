@@ -18,6 +18,7 @@ interface AnimeCatalogFilterOptions {
   config: any;
   catalogConfig: any;
   cleanId: string;
+  searchCatalogId?: string | null;
 }
 
 interface AnimeClassification {
@@ -204,7 +205,7 @@ function classifyAnime(meta: any, fallbackType: string): AnimeClassification {
 
 function filterAnimeFromGeneralCatalogs(
   metas: any[],
-  { type, config, catalogConfig, cleanId }: AnimeCatalogFilterOptions,
+  { type, config, catalogConfig, cleanId, searchCatalogId }: AnimeCatalogFilterOptions,
 ): any[] {
   if (!Array.isArray(metas) || metas.length === 0) return metas;
 
@@ -215,8 +216,17 @@ function filterAnimeFromGeneralCatalogs(
     : config?.excludeAnimeFromGeneralCatalogs !== false;
 
   if (!enabled) return metas;
+
+  // Search rows need special handling. General Movies/Shows search should hide anime,
+  // while dedicated Anime Movies/Anime Series search must remain untouched.
+  if (cleanId === 'search') {
+    const slot = String(searchCatalogId || '').toLowerCase();
+    if (slot === 'anime_movie' || slot === 'anime_series') return metas;
+    if (slot !== 'movie' && slot !== 'series') return metas;
+  }
+
   if (isDedicatedAnimeCatalog(type, catalogConfig, cleanId)) return metas;
-  if (['search', 'people_search', 'gemini.search'].includes(cleanId)) return metas;
+  if (['people_search', 'gemini.search'].includes(cleanId)) return metas;
   if (isPersonalCatalog(cleanId)) return metas;
 
   const removed: Array<{ name: string; reason: string }> = [];

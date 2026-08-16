@@ -4011,6 +4011,10 @@ addon.get("/stremio/:userUUID/catalog/:type/:id{/:extra}.json", async function (
   
   try {
     let responseData;
+    // Request-local identity of the Stremio search row (movie, series,
+    // anime_movie, anime_series, etc.). Keep this out of shared config state so
+    // concurrent search-row requests cannot influence one another.
+    let activeSearchCatalogId = null;
     // Set by any branch whose handler already ran applyCatalogFilters internally
     // (external addon catalogs filter before computing their pagination cursor).
     let filtersAlreadyApplied = false;
@@ -4074,6 +4078,7 @@ addon.get("/stremio/:userUUID/catalog/:type/:id{/:extra}.json", async function (
       config._currentSearchEngine = searchEngine;
       config._currentSearchType = searchType;
       config._currentSearchCatalogId = originalSearchId;
+      activeSearchCatalogId = originalSearchId;
 
       // Compute search-specific page size based on the provider's actual results per page
       let searchPageSize = 20; // default (TMDB, Kitsu)
@@ -4200,7 +4205,8 @@ addon.get("/stremio/:userUUID/catalog/:type/:id{/:extra}.json", async function (
         type: actualType,
         config,
         catalogConfig,
-        cleanId
+        cleanId,
+        searchCatalogId: activeSearchCatalogId
       });
     }
 

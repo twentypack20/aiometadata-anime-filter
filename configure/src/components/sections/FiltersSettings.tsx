@@ -110,7 +110,7 @@ export function FiltersSettings() {
           <CardHeader>
             <CardTitle>Anime in General Catalogs</CardTitle>
             <CardDescription>
-              Hide titles detected as anime from normal movie and series discovery rows while keeping dedicated anime catalogs unchanged. Western cartoons and kids animation are kept unless they map to an anime database. Search, watchlists, favorites, Up Next, history, and resume rows are not affected.
+              Hide titles detected as anime from normal movie and series discovery/search rows while keeping dedicated anime catalogs and anime search rows unchanged. Western cartoons and kids animation are kept unless they map to an anime database. Watchlists, favorites, Up Next, history, and resume rows are not affected.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -120,7 +120,7 @@ export function FiltersSettings() {
                 checked={config.excludeAnimeFromGeneralCatalogs ?? true}
                 onCheckedChange={handleExcludeAnimeFromGeneralCatalogsChange}
               />
-              <Label htmlFor="exclude-anime-general-catalogs">Hide Anime from General Discovery Catalogs</Label>
+              <Label htmlFor="exclude-anime-general-catalogs">Hide Anime from General Discovery & Search Rows</Label>
             </div>
           </CardContent>
         </Card>

@@ -12,7 +12,8 @@ When enabled:
 
 - General discovery catalogs such as trending, top-rated, provider/service catalogs, and similar movie/series rows can have anime removed.
 - Dedicated anime catalogs (MAL, AniList, Kitsu/AniDB-style catalogs, and SIMKL anime catalogs) are left unchanged.
-- Search results are left unchanged so anime can still be found intentionally.
+- Ordinary Movies/Shows search rows also remove anime.
+- Dedicated Anime Movies/Anime Series search rows are left unchanged so anime can still be found intentionally.
 - Personal rows such as watchlists, favorites, Up Next, completed/history, and resume are left unchanged.
 - Western cartoons and children's animation are retained unless the title actually maps to an anime database.
 

@@ -69,16 +69,23 @@ interface CatalogFilterOptions {
   config: any;
   catalogConfig: any;
   cleanId: string;
+  searchCatalogId?: string | null;
 }
 
-async function applyCatalogFilters(metas: any[], { type, config, catalogConfig, cleanId }: CatalogFilterOptions): Promise<any[]> {
+async function applyCatalogFilters(metas: any[], { type, config, catalogConfig, cleanId, searchCatalogId }: CatalogFilterOptions): Promise<any[]> {
   if (!Array.isArray(metas) || metas.length === 0) return metas;
 
   const isSearch = ['search', 'people_search', 'gemini.search'].includes(cleanId);
 
-  if (!isSearch) {
-    metas = filterAnimeFromGeneralCatalogs(metas, { type, config, catalogConfig, cleanId });
-  }
+  // Anime filtering also applies to the ordinary movie/series search rows. The
+  // filter itself protects anime-specific search rows and non-media search rows.
+  metas = filterAnimeFromGeneralCatalogs(metas, {
+    type,
+    config,
+    catalogConfig,
+    cleanId,
+    searchCatalogId,
+  });
 
   if (!isSearch) {
     metas = applyAgeRatingFilter(metas, type, config);
