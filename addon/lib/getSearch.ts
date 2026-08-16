@@ -225,6 +225,13 @@ async function parseTvdbSearchResult(type: string, extendedRecord: any, language
     imdbRating: imdbId ? await getImdbRating(imdbId, type) : 'N/A',
     _tmdbId: tmdbId ? String(tmdbId) : undefined,
     _tvdbId: tvdbId ? String(tvdbId) : undefined,
+
+    // Preserve TVDB origin hints for the custom anime classifier. TVDB's
+    // extended records already contain these values, but the stock search meta
+    // drops them before catalog filters run.
+    _originalLanguage: extendedRecord.originalLanguage || undefined,
+    _originCountry: extendedRecord.originalCountry || undefined,
+
     status: extendedRecord.status?.name || extendedRecord.status,
     aliases: extendedRecord.aliases || [],
     translations: extendedRecord.translations?.nameTranslations?.map((t: any) => t.name) || [],
@@ -662,6 +669,18 @@ async function performTmdbSearch(type: string, query: string, language: string, 
         if(allIds.imdbId) parsed.imdb_id = allIds.imdbId;
         if(allIds.tmdbId) parsed._tmdbId = String(allIds.tmdbId);
         if(allIds.tvdbId) parsed._tvdbId = String(allIds.tvdbId);
+
+        // Preserve origin hints for downstream catalog/search filters. These are
+        // intentionally internal fields: TMDB exposes them during search/detail
+        // hydration, but parseMedia does not retain them on the Stremio meta.
+        // The custom anime filter uses them only as a conservative fallback when
+        // a title is Animation + Japanese origin/language and no ID mapping exists.
+        parsed._originalLanguage = details.original_language || media.original_language || undefined;
+        parsed._originCountry = details.origin_country
+          || media.origin_country
+          || details.production_countries?.map((country: any) => country?.iso_3166_1 || country?.name).filter(Boolean)
+          || undefined;
+
         parsed.runtime = type === 'movie' ? Utils.parseRunTime(details.runtime) : null;
         if(type === 'series') parsed.runtime  = Utils.parseRunTime(details.episode_run_time?.[0] ?? details.last_episode_to_air?.runtime ?? details.next_episode_to_air?.runtime ?? null);
         parsed.app_extras = { releaseDates: details.release_dates, certification, certificationLocal: certLocal };

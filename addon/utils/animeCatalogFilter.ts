@@ -53,26 +53,48 @@ function getGenreNames(meta: any): Set<string> {
   return names;
 }
 
+function normalizeLanguage(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object') {
+    const obj = value as any;
+    value = obj.code ?? obj.id ?? obj.iso_639_1 ?? obj.iso_639_2 ?? obj.name ?? '';
+  }
+  return String(value).trim().toLowerCase().replace('_', '-');
+}
+
+function normalizeCountry(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object') {
+    const obj = value as any;
+    value = obj.code ?? obj.id ?? obj.iso_3166_1 ?? obj.shortCode ?? obj.name ?? '';
+  }
+  return String(value).trim().toLowerCase();
+}
+
 function looksLikeJapaneseAnimation(meta: any): boolean {
   const genres = getGenreNames(meta);
   if (genres.has('anime')) return true;
   if (!genres.has('animation')) return false;
 
-  const language = String(
-    meta?.original_language ?? meta?.originalLanguage ?? meta?._originalLanguage ?? ''
-  ).toLowerCase();
+  const rawLanguage = meta?.original_language ?? meta?.originalLanguage ?? meta?._originalLanguage ?? '';
+  const language = normalizeLanguage(rawLanguage);
+  const japaneseLanguage = language === 'ja'
+    || language === 'jpn'
+    || language === 'japanese'
+    || language.startsWith('ja-')
+    || language.startsWith('jpn-');
 
   const rawCountry = meta?.country ?? meta?.originalCountry ?? meta?._originCountry ?? meta?.origin_country;
   const countries = Array.isArray(rawCountry) ? rawCountry : [rawCountry];
   const normalizedCountries = countries
-    .filter(Boolean)
-    .map((country: unknown) => String(country).trim().toLowerCase());
+    .map(normalizeCountry)
+    .filter(Boolean);
 
   const japaneseCountry = normalizedCountries.some((country: string) =>
     country === 'jp' || country === 'jpn' || country === 'japan'
   );
 
-  return language === 'ja' || japaneseCountry;
+  return japaneseLanguage || japaneseCountry;
 }
 
 function isDedicatedAnimeCatalog(type: string, catalogConfig: any, cleanId: string): boolean {

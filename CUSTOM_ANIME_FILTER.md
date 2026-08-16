@@ -58,3 +58,15 @@ The included `Build Custom AIOMetadata Image` GitHub Actions workflow builds on 
 - `ghcr.io/<owner>/<repo>:latest`
 
 The workflow currently targets `linux/amd64` for a typical VPS deployment.
+
+## v3: origin-aware normal search filtering
+
+v3 keeps the v2 search-row behavior and improves the conservative fallback used when an anime title has no usable cross-ID mapping.
+
+- TMDB normal Movie/Series search now preserves `original_language` and origin-country hints on internal search metas before filters run.
+- TVDB normal search now preserves `originalLanguage` and `originalCountry` from extended records.
+- The Japanese-animation fallback recognizes `ja`, `jpn`, `japanese`, locale variants such as `ja-JP`, and Japan country identifiers.
+- The rule still requires the result to be Animation (or explicitly Anime), so Western animation remains in normal rows.
+- Dedicated Anime Movies / Anime Shows search rows remain untouched.
+- This patch intentionally does not try to remove fan-made or low-quality TVDB records unless they independently classify as anime; search-quality cleanup is a separate concern.
+
