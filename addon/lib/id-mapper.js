@@ -307,6 +307,15 @@ function enrichWithAnimeApi(animeList) {
     for (const item of items) {
       if (dropped.has(item)) continue;
 
+      // Preserve animeApi's TMDB/Trakt container type even when Fribb already
+      // has an anime-format type such as "Special". The two describe
+      // different things: Fribb's type is useful for anime semantics, while
+      // animeApi's type tells us whether downstream movie/series APIs treat
+      // the title as a movie or a TV series.
+      if (row.type) {
+        item._animeApiType = row.type;
+      }
+
       let filled = false;
       for (const [fribbKey, apiKey] of fields) {
         if (row[apiKey] == null || fieldValues(item, fribbKey).length > 0) continue;
@@ -388,6 +397,7 @@ function appendAnimeApiOnlyRows(animeList) {
 
     animeList.push({
       type: row.type,
+      _animeApiType: row.type,
       mal_id: row.myanimelist,
       anilist_id: row.anilist,
       kitsu_id: row.kitsu,
@@ -1529,6 +1539,62 @@ function getMappingByTmdbId(tmdbId, type) {
 function getAnimeTypeFromMapping(mapping) {
   if (!mapping?.type) return null;
   return seriesLikeTypes.has(mapping.type.toLowerCase()) ? 'series' : 'movie';
+}
+
+/**
+ * Resolve the Stremio movie/series container for an anime title.
+ *
+ * Anime databases use format labels such as TV, OVA and Special, while
+ * downstream Stremio metadata/stream providers require a movie-or-series
+ * container. For specials in particular those are not always equivalent.
+ */
+async function resolveAnimeMediaType({ malId = null, kitsuId = null, animeType = null, episodeCount = null, config = {} } = {}) {
+  let mapping = null;
+  if (malId != null) mapping = getMappingByMalId(malId);
+  if (!mapping && kitsuId != null) mapping = getMappingByKitsuId(kitsuId);
+
+  const resolvedMalId = malId ?? mapping?.mal_id ?? null;
+  const imdbId = mapping?.imdb_id ?? null;
+  const tmdbId = mapping?.themoviedb_id ?? null;
+
+  // Strong explicit movie signal used elsewhere by AIOMetadata.
+  if ((resolvedMalId != null && getTraktAnimeMovieByMalId(resolvedMalId))
+      || (imdbId && getTraktAnimeMovieByImdbId(imdbId))
+      || (tmdbId && getTraktAnimeMovieByTmdbId(tmdbId))) {
+    return 'movie';
+  }
+
+  // animeApi exposes the mapped TMDB/Trakt container type. Prefer that over
+  // Fribb's anime-format type such as "Special".
+  const apiType = String(mapping?._animeApiType || '').trim().toLowerCase();
+  if (apiType === 'movie') return 'movie';
+  if (apiType === 'tv') return 'series';
+
+  const normalizedSourceType = String(animeType || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ');
+
+  if (normalizedSourceType === 'MOVIE') return 'movie';
+  if (['TV', 'OVA', 'WEB'].includes(normalizedSourceType)) return 'series';
+
+  if (normalizedSourceType === 'ONA') {
+    if (resolvedMalId != null) {
+      return await resolveOnaType(resolvedMalId, config);
+    }
+    return Number(episodeCount) === 1 ? 'movie' : 'series';
+  }
+
+  // Specials remain series unless a strong mapping above says movie. This
+  // avoids converting every one-off OVA/special into a movie.
+  if (normalizedSourceType === 'SPECIAL' || normalizedSourceType === 'TV SPECIAL') {
+    const mappingType = String(mapping?.type || '').toLowerCase();
+    return mappingType === 'movie' ? 'movie' : 'series';
+  }
+
+  const mappedType = getAnimeTypeFromMapping(mapping);
+  return mappedType || 'series';
 }
 
 /**
@@ -2784,6 +2850,7 @@ module.exports = {
   getAnimeTypeFromKitsuId,
   getAnimeTypeFromMalId,
   getAnimeTypeFromAnidbId,
+  resolveAnimeMediaType,
   getKitsuToImdbMapping,
   getKitsuToImdbMappingsByImdbId,
   enrichMalEpisodes,

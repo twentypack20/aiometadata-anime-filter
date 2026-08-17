@@ -58,11 +58,17 @@ export interface LocalAnimeSearchResult {
   episodeCount: number | null;
   image: string | null;
   score: number | null;
+  resolvedType: 'movie' | 'series';
+}
+
+export interface LocalAnimeSearchPage {
+  results: LocalAnimeSearchResult[];
+  total: number;
 }
 
 let records: LocalAnimeRecord[] = [];
 let exactTitleIndex = new Map<string, LocalAnimeRecord[]>();
-const searchCache = new Map<string, { expiresAt: number; results: LocalAnimeSearchResult[] }>();
+const searchCache = new Map<string, { expiresAt: number; page: LocalAnimeSearchPage }>();
 const SEARCH_CACHE_TTL_MS = 10 * 60 * 1000;
 const SEARCH_CACHE_MAX = 500;
 let initialized = false;
@@ -106,11 +112,6 @@ function compactSearchText(value: string): string {
 
 function normalizeAnimeType(value: unknown): string {
   return String(value || '').trim().toUpperCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
-}
-
-function isTypeAllowed(record: LocalAnimeRecord, type: 'movie' | 'series'): boolean {
-  if (type === 'movie') return record.animeType === 'MOVIE';
-  return new Set(['TV', 'ONA', 'OVA', 'SPECIAL', 'TV SPECIAL', 'WEB']).has(record.animeType);
 }
 
 function makeRecord(item: UpstreamAnimeIndexEntry): LocalAnimeRecord | null {
@@ -291,24 +292,29 @@ function rankRecord(record: LocalAnimeRecord, normalizedQuery: string): number {
   return best;
 }
 
-function getCachedSearch(key: string): LocalAnimeSearchResult[] | null {
+function getCachedSearch(key: string): LocalAnimeSearchPage | null {
   const cached = searchCache.get(key);
   if (!cached) return null;
   if (cached.expiresAt <= Date.now()) {
     searchCache.delete(key);
     return null;
   }
-  // Refresh insertion order for simple LRU behavior.
   searchCache.delete(key);
   searchCache.set(key, cached);
-  return cached.results.map((item) => ({ ...item }));
+  return {
+    total: cached.page.total,
+    results: cached.page.results.map((item) => ({ ...item })),
+  };
 }
 
-function setCachedSearch(key: string, results: LocalAnimeSearchResult[]): void {
+function setCachedSearch(key: string, page: LocalAnimeSearchPage): void {
   searchCache.delete(key);
   searchCache.set(key, {
     expiresAt: Date.now() + SEARCH_CACHE_TTL_MS,
-    results: results.map((item) => ({ ...item })),
+    page: {
+      total: page.total,
+      results: page.results.map((item) => ({ ...item })),
+    },
   });
   while (searchCache.size > SEARCH_CACHE_MAX) {
     const oldest = searchCache.keys().next().value;
@@ -317,32 +323,36 @@ function setCachedSearch(key: string, results: LocalAnimeSearchResult[]): void {
   }
 }
 
-export async function searchLocalAnime(
+export async function searchLocalAnimePage(
   query: string,
   type: 'movie' | 'series',
   page = 1,
   pageSize = PAGE_SIZE,
-): Promise<LocalAnimeSearchResult[]> {
+  config: any = {},
+): Promise<LocalAnimeSearchPage> {
   if (!initialized) {
     try {
       await initializeLocalAnimeSearch();
     } catch (error: any) {
       logger.warn(`Local anime search unavailable: ${error?.message || error}`);
-      return [];
+      return { results: [], total: 0 };
     }
   }
 
   const normalizedQuery = normalizeSearchText(query);
-  if (!normalizedQuery) return [];
+  if (!normalizedQuery) return { results: [], total: 0 };
 
   const safePage = Math.max(1, Number(page) || 1);
   const safePageSize = Math.max(1, Math.min(50, Number(pageSize) || PAGE_SIZE));
   const cacheKey = `${type}|${safePage}|${safePageSize}|${normalizedQuery}`;
-  const cachedResults = getCachedSearch(cacheKey);
-  if (cachedResults) return cachedResults;
+  const cachedPage = getCachedSearch(cacheKey);
+  if (cachedPage) return cachedPage;
 
+  // Rank by title first, then resolve only matching candidates through the
+  // already-loaded mapper. This lets Specials/ONAs use mapping-aware
+  // movie-vs-series classification without turning local search into a remote
+  // metadata lookup.
   const ranked = records
-    .filter((record) => isTypeAllowed(record, type))
     .map((record) => ({ record, rank: rankRecord(record, normalizedQuery) }))
     .filter((item) => item.rank > 0)
     .sort((a, b) => {
@@ -354,14 +364,22 @@ export async function searchLocalAnime(
       return a.record.title.localeCompare(b.record.title);
     });
 
-  // Resolve the local MAL-keyed records through AIOMetadata's already-loaded ID mapper.
-  // This keeps the search itself local and gives downstream metadata/playback a native Kitsu ID.
   const mapped: LocalAnimeSearchResult[] = [];
   const seenKitsu = new Set<number>();
   for (const { record } of ranked) {
     const mapping = idMapper.getMappingByMalId(record.malId);
     const kitsuId = Number(mapping?.kitsu_id);
     if (!Number.isFinite(kitsuId) || kitsuId <= 0 || seenKitsu.has(kitsuId)) continue;
+
+    const resolvedType = await idMapper.resolveAnimeMediaType({
+      malId: record.malId,
+      kitsuId,
+      animeType: record.animeType,
+      episodeCount: record.episodeCount,
+      config,
+    });
+    if (resolvedType !== type) continue;
+
     seenKitsu.add(kitsuId);
     mapped.push({
       malId: record.malId,
@@ -376,15 +394,29 @@ export async function searchLocalAnime(
       episodeCount: record.episodeCount,
       image: record.image,
       score: record.score,
+      resolvedType,
     });
   }
 
   const start = (safePage - 1) * safePageSize;
-  const pageResults = mapped.slice(start, start + safePageSize);
-  setCachedSearch(cacheKey, pageResults);
+  const pageResult: LocalAnimeSearchPage = {
+    results: mapped.slice(start, start + safePageSize),
+    total: mapped.length,
+  };
+  setCachedSearch(cacheKey, pageResult);
 
-  logger.info(`Local anime search matched ${pageResults.length} ${type} result(s) for "${query}" (${mapped.length} mapped total)`);
-  return pageResults;
+  logger.info(`Local anime search matched ${pageResult.results.length} ${type} result(s) for "${query}" (${pageResult.total} mapped total)`);
+  return pageResult;
+}
+
+export async function searchLocalAnime(
+  query: string,
+  type: 'movie' | 'series',
+  page = 1,
+  pageSize = PAGE_SIZE,
+  config: any = {},
+): Promise<LocalAnimeSearchResult[]> {
+  return (await searchLocalAnimePage(query, type, page, pageSize, config)).results;
 }
 
 export function isKnownAnimeTitle(title: string, year?: number | string | null): boolean {

@@ -55,3 +55,7 @@ Other actively maintained sources researched for this feature include:
 - **Kometa-Team/Anime-IDs** — generated daily and useful for ID conversions, but likewise mapping-oriented rather than a title-search dataset.
 
 The archived `manami-project/anime-offline-database` is intentionally not used as the v4 live title-index source.
+
+## v6 special/media-container routing
+
+Custom v6 adds mapping-aware movie-vs-series routing for anime Specials/TV Specials. The title index still supplies the searchable title record, but AIOMetadata now uses its already-loaded AnimeAPI/Fribb/Trakt mappings to decide whether the result belongs in Anime Movies or Anime Shows. Empty later local-search pages also no longer trigger a Kitsu fallback, preventing mixed-source pagination.

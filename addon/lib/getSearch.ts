@@ -291,7 +291,11 @@ async function performKitsuSearch(type: string, query: string, language: string,
     const normalizedTvSubtypes = [...new Set(Array.from(desiredTvTypes).map((subtype: string) => {
       return subtype.toLowerCase() === 'tv special' ? 'special' : subtype;
     }))];
-    const subtypesArray = type === 'movie' ? ['movie'] : [normalizedTvSubtypes.join(',')];
+    // Include specials in both raw queries, then let the mapping-aware media
+    // resolver decide whether a particular special belongs in Movies or Shows.
+    const subtypesArray = type === 'movie'
+      ? ['movie,special']
+      : [normalizedTvSubtypes.join(',')];
     const pageSize = 20;
     const offset = (page - 1) * pageSize;
     const searchResults = await kitsu.searchByName(
@@ -316,19 +320,29 @@ async function performKitsuSearch(type: string, query: string, language: string,
           const mapping = await idMapper.getMappingByKitsuId(kitsuId);
           const malId = mapping?.mal_id;
 
-          let itemType = type;
-          if (item.subtype?.toLowerCase() === 'ona') {
-            if (malId) {
-              itemType = await idMapper.resolveOnaType(malId, config);
-            } else if (item.episodeCount === 1) {
-              itemType = 'movie';
-            }
+          const itemType = await idMapper.resolveAnimeMediaType({
+            malId,
+            kitsuId,
+            animeType: item.subtype,
+            episodeCount: item.episodeCount,
+            config,
+          });
+          if (itemType !== type) {
+            logger.debug(`Skipping Kitsu ${kitsuId} from ${type} search because mapping-aware media type is ${itemType}`);
+            return null;
           }
           const isMovie = itemType === 'movie';
 
-          let tmdbId = isMovie ? idMapper.getTraktAnimeMovieByMalId(malId)?.externals.tmdb : mapping?.themoviedb_id;
-          let imdbId = isMovie ? idMapper.getTraktAnimeMovieByMalId(malId)?.externals.imdb : mapping?.imdb_id;
-          let tvdbId = isMovie ? (wikiMappings.getByImdbId(imdbId, itemType))?.tvdbId || null : mapping?.tvdb_id;
+          const traktMovieMapping = isMovie && malId ? idMapper.getTraktAnimeMovieByMalId(malId) : null;
+          let tmdbId = isMovie
+            ? (traktMovieMapping?.externals?.tmdb || mapping?.themoviedb_id)
+            : mapping?.themoviedb_id;
+          let imdbId = isMovie
+            ? (traktMovieMapping?.externals?.imdb || mapping?.imdb_id)
+            : mapping?.imdb_id;
+          let tvdbId = isMovie
+            ? ((imdbId ? wikiMappings.getByImdbId(imdbId, itemType)?.tvdbId : null) || mapping?.tvdb_id || null)
+            : mapping?.tvdb_id;
 
           let id = imdbId || `kitsu:${kitsuId}`;
           const preferredProvider = config.providers?.anime || 'mal';
@@ -426,9 +440,17 @@ async function performLocalAnimeSearch(type: 'movie' | 'series', query: string, 
   logger.debug(`Performing local anime index search for ${type}:`, query);
 
   try {
-    const results = await localAnimeSearch.searchLocalAnime(query, type, page, 20);
+    const localPage = await localAnimeSearch.searchLocalAnimePage(query, type, page, 20, config);
+    const results = localPage.results;
 
     if (!results || results.length === 0) {
+      if (localPage.total > 0) {
+        // A later page can legitimately be empty. Falling back to Kitsu here
+        // mixes two result sets and can re-introduce titles that the local
+        // classifier intentionally routed to the other media type.
+        logger.info(`Local anime index page ${page} is empty for "${query}", but ${localPage.total} mapped ${type} result(s) exist; not falling back to Kitsu`);
+        return [];
+      }
       logger.info(`No local anime index results found for query: "${query}"`);
       if (localAnimeSearch.isLocalAnimeKitsuFallbackEnabled()) {
         logger.info(`Falling back to Kitsu text search for local anime miss: "${query}"`);

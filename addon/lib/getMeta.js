@@ -464,6 +464,31 @@ async function getMeta(type, language, stremioId, config = {}, userUUID, include
       if (detectedAnimeMapping.anilist_id) prefetchedAnimeIds.anilistId = detectedAnimeMapping.anilist_id;
     }
     const allIds =  await resolveAllIds(stremioId, type, config, prefetchedAnimeIds, Array.from(targetProviders));
+
+    // Anime databases can label a standalone title as Special/TV Special while
+    // IMDb/TMDB/Trakt expose it as a movie. Resolve that container before the
+    // provider builds metadata so movie-like specials do not fall through a
+    // series endpoint (e.g. Kitsu IDs being misread as season numbers).
+    let resolvedAnimeContentType = type;
+    if (isAnime && (type === 'movie' || type === 'series')) {
+      const sourceMapping = allIds?.kitsuId
+        ? idMapper.getMappingByKitsuId(allIds.kitsuId)
+        : allIds?.malId
+          ? idMapper.getMappingByMalId(allIds.malId)
+          : null;
+      const sourceAnimeType = sourceMapping?.type || null;
+      const mappedType = await idMapper.resolveAnimeMediaType({
+        malId: allIds?.malId,
+        kitsuId: allIds?.kitsuId,
+        animeType: sourceAnimeType,
+        config,
+      });
+      if (mappedType && mappedType !== type) {
+        logger.info(`[AnimeMeta] Reclassified ${stremioId} from ${type} to ${mappedType} using mapping-aware media type`);
+        resolvedAnimeContentType = mappedType;
+      }
+    }
+
     switch (finalType) {
       case 'movie':
         meta = await getMovieMeta(stremioId, preferredProvider, language, config, userUUID, allIds);
@@ -472,7 +497,7 @@ async function getMeta(type, language, stremioId, config = {}, userUUID, include
         meta = await getSeriesMeta(preferredProvider, stremioId, language, config, userUUID, allIds, shouldIncludeVideos);
         break;
       case 'anime':
-        meta = await getAnimeMeta(config.providers?.anime, stremioId, language, config, userUUID, allIds, type, isAnime, shouldIncludeVideos);
+        meta = await getAnimeMeta(config.providers?.anime, stremioId, language, config, userUUID, allIds, resolvedAnimeContentType, isAnime, shouldIncludeVideos);
         break;
     }
 
@@ -1125,6 +1150,7 @@ async function getAnimeMeta(preferredProvider, stremioId, language, config, user
       let genres = kitsuDetails.included?.filter(item => item.type === 'categories').map(item => item.attributes?.title).filter(Boolean) || [];
       return _markDegraded(await buildKitsuAnimeResponse(stremioId, details, genres, kitsuDetails.included, episodes, config, userUUID, {
         mapping: allIds,
+        resolvedAnimeType: type,
         bestBackgroundUrl: background,
         bestPosterUrl: poster,
         bestLogoUrl: logo,
@@ -3261,10 +3287,14 @@ async function buildAnimeResponse(stremioId, malData, language, characterData, e
 
 async function buildKitsuAnimeResponse(stremioId, kitsuData, genres, includeObject, episodeData, config, userUUID, enrichmentData = {}) {
   try {
-    const { mapping, bestBackgroundUrl, bestPosterUrl, bestLogoUrl, bestLandscapePosterUrl } = enrichmentData
+    const { mapping, resolvedAnimeType, bestBackgroundUrl, bestPosterUrl, bestLogoUrl, bestLandscapePosterUrl } = enrichmentData
 
     const stremioType =
-      kitsuData.attributes.subtype?.toLowerCase() === 'movie' ? 'movie' : 'series'
+      resolvedAnimeType === 'movie' || resolvedAnimeType === 'series'
+        ? resolvedAnimeType
+        : kitsuData.attributes.subtype?.toLowerCase() === 'movie'
+          ? 'movie'
+          : 'series'
 
     let relationships = includeObject?.filter(item => item.type === 'mediaRelationships' && ['prequel', 'sequel'].some(role => item.attributes?.role.toLowerCase().includes(role)) && item.relationships?.destination?.data?.type === 'anime') || [];
 
@@ -3347,7 +3377,7 @@ async function buildKitsuAnimeResponse(stremioId, kitsuData, genres, includeObje
       releaseInfo: kitsuReleaseInfo,
       runtime: Utils.parseRunTime(kitsuData.attributes.episodeLength),
       status: kitsuData.attributes.status || 'unknown',
-      _stability: deriveStabilityStamp('kitsu', kitsuData.attributes, 'series'),
+      _stability: deriveStabilityStamp('kitsu', kitsuData.attributes, stremioType),
       imdbRating: imdbRating,
       poster:
         bestPosterUrl ||
@@ -3365,7 +3395,15 @@ async function buildKitsuAnimeResponse(stremioId, kitsuData, genres, includeObje
       director: [],
       writers: [],
       behaviorHints: {
-        defaultVideoId: stremioType === 'movie' ? stremioId : null,
+        defaultVideoId: stremioType === 'movie'
+          ? ((imdbId && idProvider === 'imdb')
+              ? imdbId
+              : (malId && idProvider === 'mal')
+                ? `mal:${malId}`
+                : (kitsuData.id && idProvider === 'kitsu')
+                  ? `kitsu:${kitsuData.id}`
+                  : stremioId)
+          : null,
         hasScheduledVideos: stremioType === 'series'
       },
       videos: [],
