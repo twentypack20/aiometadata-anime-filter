@@ -47,6 +47,52 @@ function stampIds(allIds) {
   return stamps;
 }
 
+
+/**
+ * Build a backwards-compatible Kitsu episode ID with an optional episode-number bridge.
+ *
+ * Legacy format:
+ *   kitsu:<kitsuId>:<absoluteEpisode>
+ *
+ * Bridge format (consumed by the custom AIOStreams fork):
+ *   kitsu:<kitsuId>:<absoluteEpisode>:<mappedSeason>:<mappedEpisode>
+ *
+ * The third field remains the Kitsu/anime episode number so AIOStreams can normalise
+ * requests back to the legacy Kitsu ID before querying upstream addons. The mapped
+ * season/episode pair is only appended when AIOMetadata has a non-franchise-fallback
+ * TMDB episode mapping.
+ */
+function buildKitsuEpisodeBridge(kitsuId, absoluteEpisode, tmdbEpisode) {
+  const absolute = Number(absoluteEpisode);
+  const mappedSeason = Number(tmdbEpisode?.seasonNumber);
+  const mappedEpisode = Number(tmdbEpisode?.episodeNumber);
+  const hasReliableMapping =
+    tmdbEpisode &&
+    !tmdbEpisode.isFranchiseFallback &&
+    Number.isInteger(mappedSeason) &&
+    mappedSeason >= 0 &&
+    Number.isInteger(mappedEpisode) &&
+    mappedEpisode > 0;
+
+  if (!hasReliableMapping) {
+    return {
+      id: `kitsu:${kitsuId}:${absoluteEpisode}`,
+      season: 1,
+      episode: absoluteEpisode,
+      absoluteEpisode: absolute,
+      bridged: false,
+    };
+  }
+
+  return {
+    id: `kitsu:${kitsuId}:${absoluteEpisode}:${mappedSeason}:${mappedEpisode}`,
+    season: mappedSeason,
+    episode: mappedEpisode,
+    absoluteEpisode: absolute,
+    bridged: true,
+  };
+}
+
 const processLogo = (logoUrl) => {
   if (!logoUrl) return null;
   return logoUrl.replace(/^http:/, "https:");
@@ -2978,6 +3024,12 @@ async function buildAnimeResponse(stremioId, malData, language, characterData, e
         let episodeTitle = ep.title;
         let episodeSynopsis = ep.synopsis;
         const tmdbEpisode = tmdbEpisodeMap.get(ep.mal_id);
+        const kitsuEpisodeBridge = kitsuId
+          ? buildKitsuEpisodeBridge(kitsuId, ep.mal_id, tmdbEpisode)
+          : null;
+        if (kitsuEpisodeBridge && (idProvider === 'kitsu' || idProvider === 'imdb')) {
+          episodeId = kitsuEpisodeBridge.id;
+        }
         let airDate = ep.airdate || ep.aired;
         let key = tmdbEpisode ? `${tmdbEpisode.seasonNumber}:${tmdbEpisode.episodeNumber}` : null;
 
@@ -3048,8 +3100,9 @@ async function buildAnimeResponse(stremioId, malData, language, characterData, e
         return {
           id: episodeId,
           title: episodeTitle,
-          season: 1,
-          episode: ep.mal_id,
+          season: kitsuEpisodeBridge?.season ?? 1,
+          episode: kitsuEpisodeBridge?.episode ?? ep.mal_id,
+          absoluteEpisode: kitsuEpisodeBridge?.absoluteEpisode ?? ep.mal_id,
           released: releasedAt,
           thumbnail: finalThumbnail || (isReleasedBy(releasedAt, nowMs) ? `${host}/missing_thumbnail.png` : null),
           available: isReleasedBy(releasedAt, nowMs),
@@ -3413,6 +3466,10 @@ async function buildKitsuAnimeResponse(stremioId, kitsuData, genres, includeObje
         
         let thumbnailUrl = ep.thumbnail?.original || null;
         const tmdbEpisode = tmdbEpisodeMap.get(ep.number);
+        const kitsuEpisodeBridge = buildKitsuEpisodeBridge(kitsuData.id, ep.number, tmdbEpisode);
+        if (idProvider === 'kitsu') {
+          episodeId = kitsuEpisodeBridge.id;
+        }
         let airDate = ep.airdate;
         let key = tmdbEpisode ? `${tmdbEpisode.seasonNumber}:${tmdbEpisode.episodeNumber}` : null;
 
@@ -3478,8 +3535,9 @@ async function buildKitsuAnimeResponse(stremioId, kitsuData, genres, includeObje
           released: releasedAt,
           overview: episodeOverview,
           thumbnail: finalThumbnail || (isReleasedBy(releasedAt, nowMs) ? `${host}/missing_thumbnail.png` : null),
-          season: 1,
-          episode: ep.number,
+          season: kitsuEpisodeBridge.season,
+          episode: kitsuEpisodeBridge.episode,
+          absoluteEpisode: kitsuEpisodeBridge.absoluteEpisode,
           available: isReleasedBy(releasedAt, nowMs),
           runtime: Utils.parseRunTime(ep.length)
         }
